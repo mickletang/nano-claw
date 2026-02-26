@@ -4,6 +4,61 @@ import { ProviderError } from '../utils/errors';
 import { logger } from '../utils/logger';
 
 /**
+ * OpenRouter API response types
+ */
+interface OpenRouterUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+interface OpenRouterMessage {
+  content: string | null;
+  tool_calls?: ToolCall[];
+}
+
+interface OpenRouterChoice {
+  message: OpenRouterMessage;
+  finish_reason: string;
+}
+
+interface OpenRouterResponse {
+  choices: OpenRouterChoice[];
+  usage?: OpenRouterUsage;
+}
+
+/**
+ * Anthropic API response types
+ */
+interface AnthropicUsage {
+  input_tokens: number;
+  output_tokens: number;
+}
+
+interface AnthropicContent {
+  type: string;
+  text?: string;
+}
+
+interface AnthropicResponse {
+  content: AnthropicContent[];
+  stop_reason: string;
+  usage?: AnthropicUsage;
+}
+
+/**
+ * Handle provider API errors consistently
+ */
+function handleProviderError(error: unknown, providerName: string): never {
+  logger.error({ error }, `${providerName} API error`);
+  if (axios.isAxiosError(error)) {
+    const errorMessage = (error.response?.data as { error?: { message?: string } })?.error?.message;
+    throw new ProviderError(`${providerName} API error: ${errorMessage || error.message}`);
+  }
+  throw new ProviderError(`${providerName} API error: ${(error as Error).message}`);
+}
+
+/**
  * Base class for LLM providers
  */
 export abstract class BaseProvider {
@@ -81,14 +136,14 @@ export class OpenRouterProvider extends BaseProvider {
         requestData.tools = tools;
       }
 
-      const response = await this.client.post('/chat/completions', requestData);
+      const response = await this.client.post<OpenRouterResponse>('/chat/completions', requestData);
 
       const choice = response.data.choices[0];
       const message = choice.message;
 
       return {
         content: message.content || '',
-        toolCalls: message.tool_calls as ToolCall[] | undefined,
+        toolCalls: message.tool_calls,
         finishReason: choice.finish_reason,
         usage: response.data.usage
           ? {
@@ -99,13 +154,7 @@ export class OpenRouterProvider extends BaseProvider {
           : undefined,
       };
     } catch (error) {
-      logger.error({ error }, 'OpenRouter API error');
-      if (axios.isAxiosError(error)) {
-        throw new ProviderError(
-          `OpenRouter API error: ${error.response?.data?.error?.message || error.message}`
-        );
-      }
-      throw new ProviderError(`OpenRouter API error: ${(error as Error).message}`);
+      handleProviderError(error, 'OpenRouter');
     }
   }
 }
@@ -156,7 +205,7 @@ export class AnthropicProvider extends BaseProvider {
         requestData.tools = tools.map((t) => t.function);
       }
 
-      const response = await this.client.post('/messages', requestData, {
+      const response = await this.client.post<AnthropicResponse>('/messages', requestData, {
         headers: {
           'anthropic-version': '2023-06-01',
           'x-api-key': this.apiKey,
@@ -166,8 +215,8 @@ export class AnthropicProvider extends BaseProvider {
       const content = response.data.content[0];
 
       return {
-        content: content.type === 'text' ? content.text : '',
-        toolCalls: content.type === 'tool_use' ? [content] : undefined,
+        content: content.type === 'text' ? content.text || '' : '',
+        toolCalls: content.type === 'tool_use' ? [content as unknown as ToolCall] : undefined,
         finishReason: response.data.stop_reason,
         usage: response.data.usage
           ? {
@@ -178,13 +227,7 @@ export class AnthropicProvider extends BaseProvider {
           : undefined,
       };
     } catch (error) {
-      logger.error({ error }, 'Anthropic API error');
-      if (axios.isAxiosError(error)) {
-        throw new ProviderError(
-          `Anthropic API error: ${error.response?.data?.error?.message || error.message}`
-        );
-      }
-      throw new ProviderError(`Anthropic API error: ${(error as Error).message}`);
+      handleProviderError(error, 'Anthropic');
     }
   }
 }
@@ -230,14 +273,14 @@ export class OpenAIProvider extends BaseProvider {
         requestData.tools = tools;
       }
 
-      const response = await this.client.post('/chat/completions', requestData);
+      const response = await this.client.post<OpenRouterResponse>('/chat/completions', requestData);
 
       const choice = response.data.choices[0];
       const message = choice.message;
 
       return {
         content: message.content || '',
-        toolCalls: message.tool_calls as ToolCall[] | undefined,
+        toolCalls: message.tool_calls,
         finishReason: choice.finish_reason,
         usage: response.data.usage
           ? {
@@ -248,13 +291,7 @@ export class OpenAIProvider extends BaseProvider {
           : undefined,
       };
     } catch (error) {
-      logger.error({ error }, 'OpenAI API error');
-      if (axios.isAxiosError(error)) {
-        throw new ProviderError(
-          `OpenAI API error: ${error.response?.data?.error?.message || error.message}`
-        );
-      }
-      throw new ProviderError(`OpenAI API error: ${(error as Error).message}`);
+      handleProviderError(error, 'OpenAI');
     }
   }
 }

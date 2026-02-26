@@ -6,20 +6,37 @@ import chalk from 'chalk';
 import { getGateway } from '../../gateway';
 import { logger } from '../../utils/logger';
 
+interface ChannelStatus {
+  enabled: boolean;
+  connected: boolean;
+}
+
+interface HeartbeatStatus {
+  enabled: boolean;
+  interval: number;
+  running: boolean;
+}
+
+interface GatewayStatus {
+  channels: Record<string, ChannelStatus>;
+  heartbeat?: HeartbeatStatus;
+}
+
 export async function gatewayCommand(): Promise<void> {
   console.log(chalk.blue('Starting gateway server...'));
 
   const gateway = getGateway();
-
-  // Handle graceful shutdown
   const shutdown = async () => {
     console.log(chalk.yellow('\nShutting down gateway...'));
     await gateway.stop();
     process.exit(0);
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  ['SIGINT', 'SIGTERM'].forEach((signal) =>
+    process.on(signal, () =>
+      shutdown().catch((e) => (logger.error('Shutdown failed', e), process.exit(1)))
+    )
+  );
 
   try {
     await gateway.start();
@@ -28,11 +45,11 @@ export async function gatewayCommand(): Promise<void> {
     console.log(chalk.gray('Press Ctrl+C to stop\n'));
 
     // Get initial status
-    const status = gateway.getStatus();
+    const status = gateway.getStatus() as GatewayStatus;
 
     // Display channel statuses
     const enabledChannels = Object.entries(status.channels).filter(
-      ([_, channelStatus]) => channelStatus.enabled
+      ([, channelStatus]) => channelStatus.enabled
     );
 
     if (enabledChannels.length === 0) {

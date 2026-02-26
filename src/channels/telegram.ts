@@ -32,23 +32,11 @@ export class TelegramChannel extends BaseChannel {
    * Initialize the Telegram bot
    */
   async initialize(): Promise<void> {
-    if (!this.config.enabled) {
-      logger.info('Telegram channel is disabled');
-      return;
-    }
+    if (!this.config.enabled) return logger.info('Telegram channel is disabled');
+    if (!this.config.token) throw new Error('Telegram bot token is required');
 
-    if (!this.config.token) {
-      throw new Error('Telegram bot token is required');
-    }
-
-    try {
-      // Initialize bot without auto-polling (we start it manually in start())
-      this.bot = new TelegramBot(this.config.token, { polling: false });
-      logger.info('Telegram channel initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Telegram channel', error);
-      throw error;
-    }
+    this.bot = new TelegramBot(this.config.token, { polling: false });
+    logger.info('Telegram channel initialized');
   }
 
   /**
@@ -66,9 +54,11 @@ export class TelegramChannel extends BaseChannel {
 
       // Set up message handler
       this.bot.on('message', (msg) => {
-        this.handleMessage(msg).catch((error) => {
+        try {
+          this.handleMessage(msg);
+        } catch (error) {
           logger.error('Error handling Telegram message', error);
-        });
+        }
       });
 
       // Set up error handler
@@ -134,7 +124,7 @@ export class TelegramChannel extends BaseChannel {
   /**
    * Handle incoming Telegram message
    */
-  private async handleMessage(msg: TelegramBot.Message): Promise<void> {
+  private handleMessage(msg: TelegramBot.Message): void {
     // Check if it's a text message
     if (!msg.text) {
       return;
@@ -142,16 +132,7 @@ export class TelegramChannel extends BaseChannel {
 
     // Check if user is allowed
     const userId = msg.from?.id.toString();
-    if (!userId) {
-      return;
-    }
-
-    if (
-      this.config.allowFrom &&
-      this.config.allowFrom.length > 0 &&
-      !this.config.allowFrom.includes(userId)
-    ) {
-      logger.warn(`Telegram message from unauthorized user: ${userId}`);
+    if (!userId || !this.isUserAuthorized(userId, this.config.allowFrom)) {
       return;
     }
 

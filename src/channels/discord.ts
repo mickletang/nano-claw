@@ -32,30 +32,18 @@ export class DiscordChannel extends BaseChannel {
    * Initialize the Discord bot
    */
   async initialize(): Promise<void> {
-    if (!this.config.enabled) {
-      logger.info('Discord channel is disabled');
-      return;
-    }
+    if (!this.config.enabled) return logger.info('Discord channel is disabled');
+    if (!this.config.token) throw new Error('Discord bot token is required');
 
-    if (!this.config.token) {
-      throw new Error('Discord bot token is required');
-    }
-
-    try {
-      this.client = new Client({
-        intents: [
-          GatewayIntentBits.Guilds,
-          GatewayIntentBits.GuildMessages,
-          GatewayIntentBits.DirectMessages,
-          GatewayIntentBits.MessageContent,
-        ],
-      });
-
-      logger.info('Discord channel initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Discord channel', error);
-      throw error;
-    }
+    this.client = new Client({
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.MessageContent,
+      ],
+    });
+    logger.info('Discord channel initialized');
   }
 
   /**
@@ -74,9 +62,11 @@ export class DiscordChannel extends BaseChannel {
       });
 
       this.client.on('messageCreate', (msg) => {
-        this.handleMessage(msg).catch((error) => {
+        try {
+          this.handleMessage(msg);
+        } catch (error) {
           logger.error('Error handling Discord message', error);
-        });
+        }
       });
 
       this.client.on('error', (error) => {
@@ -98,14 +88,9 @@ export class DiscordChannel extends BaseChannel {
    */
   async stop(): Promise<void> {
     if (this.client) {
-      try {
-        this.client.destroy();
-        this.connected = false;
-        logger.info('Discord channel stopped');
-      } catch (error) {
-        logger.error('Failed to stop Discord channel', error);
-        throw error;
-      }
+      void this.client.destroy();
+      this.connected = false;
+      logger.info('Discord channel stopped');
     }
   }
 
@@ -153,20 +138,14 @@ export class DiscordChannel extends BaseChannel {
   /**
    * Handle incoming Discord message
    */
-  private async handleMessage(msg: Message): Promise<void> {
+  private handleMessage(msg: Message): void {
     // Ignore bot messages
     if (msg.author.bot) {
       return;
     }
 
     // Check if user is allowed
-    const userId = msg.author.id;
-    if (
-      this.config.allowFrom &&
-      this.config.allowFrom.length > 0 &&
-      !this.config.allowFrom.includes(userId)
-    ) {
-      logger.warn(`Discord message from unauthorized user: ${userId}`);
+    if (!this.isUserAuthorized(msg.author.id, this.config.allowFrom)) {
       return;
     }
 
@@ -185,6 +164,7 @@ export class DiscordChannel extends BaseChannel {
     }
 
     // Create channel message
+    const userId = msg.author.id;
     const channelMessage: ChannelMessage = {
       id: generateId(),
       sessionId: `discord-${userId}`,

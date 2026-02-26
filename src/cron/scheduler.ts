@@ -25,19 +25,14 @@ export class CronScheduler {
       this.unschedule(job.id);
 
       // Schedule new task
-      const task = cron.schedule(job.schedule, async () => {
-        logger.info({ jobId: job.id, name: job.name }, 'Executing cron job');
+      const task = cron.schedule(job.schedule, () => {
         job.lastRun = new Date();
-
-        try {
-          await callback();
-          logger.info({ jobId: job.id, name: job.name }, 'Cron job completed successfully');
-        } catch (error) {
-          logger.error({ error, jobId: job.id, name: job.name }, 'Cron job execution failed');
-        }
-
-        // Update next run time
-        this.updateNextRun(job);
+        Promise.resolve(callback())
+          .then(() => logger.info({ jobId: job.id, name: job.name }, 'Cron job completed'))
+          .catch((error: unknown) =>
+            logger.error({ error, jobId: job.id, name: job.name }, 'Cron job failed')
+          )
+          .finally(() => this.updateNextRun(job));
       });
 
       this.scheduledTasks.set(job.id, task);
